@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, lazy, Suspense } from "react";
 import { useRouter } from "next/navigation";
-import { User, Briefcase, DollarSign, ChevronLeft, Save, Loader2 } from "lucide-react";
+import { User, Briefcase, DollarSign, ChevronLeft, Save, Loader2, ScanFace, CheckCircle2, Trash2 } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
 import Button from "@/components/shared/Button";
 import toast from "react-hot-toast";
+
+const FaceEnrollment = lazy(() => import("@/components/attendance/FaceEnrollment"));
 
 interface FormData {
   firstName: string;
@@ -53,6 +55,9 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
   const [employeeName, setEmployeeName] = useState("");
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [positions, setPositions] = useState<{ id: string; name: string }[]>([]);
+  const [faceEnrolled, setFaceEnrolled] = useState<boolean | null>(null);
+  const [showFaceEnrollment, setShowFaceEnrollment] = useState(false);
+  const [deletingFace, setDeletingFace] = useState(false);
   const [form, setForm] = useState<FormData>({
     firstName: "", lastName: "", phone: "", gender: "",
     birthDate: "", address: "", nik: "", npwp: "",
@@ -88,6 +93,13 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
         if (deptData.success) setDepartments(deptData.data ?? []);
         if (posData.success) setPositions(posData.data ?? []);
 
+        // Check if face is enrolled
+        try {
+          const faceRes = await fetch(`/api/employees/${id}/face`);
+          const faceData = await faceRes.json();
+          if (faceData.success) setFaceEnrolled(faceData.data.enrolled);
+        } catch { setFaceEnrolled(false); }
+
         setForm({
           firstName,
           lastName,
@@ -114,6 +126,24 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
     };
     load();
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleDeleteFace = async () => {
+    setDeletingFace(true);
+    try {
+      const res = await fetch(`/api/employees/${id}/face`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        setFaceEnrolled(false);
+        toast.success("Data wajah berhasil dihapus");
+      } else {
+        toast.error(data.message || "Gagal menghapus data wajah");
+      }
+    } catch {
+      toast.error("Terjadi kesalahan");
+    } finally {
+      setDeletingFace(false);
+    }
+  };
 
   const handleSubmit = async () => {
     setSaving(true);
@@ -323,6 +353,53 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
         )}
       </div>
 
+      {/* Face Registration */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6">
+        <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
+          <ScanFace size={18} className="text-blue-600" /> Registrasi Wajah
+        </h3>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            {faceEnrolled === null ? (
+              <div className="w-5 h-5 rounded-full border-2 border-gray-200 animate-pulse" />
+            ) : faceEnrolled ? (
+              <CheckCircle2 size={20} className="text-emerald-500 shrink-0" />
+            ) : (
+              <div className="w-5 h-5 rounded-full border-2 border-gray-300 dark:border-gray-600" />
+            )}
+            <div>
+              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                {faceEnrolled ? "Wajah sudah terdaftar" : "Wajah belum didaftarkan"}
+              </div>
+              <div className="text-xs text-gray-400 mt-0.5">
+                {faceEnrolled
+                  ? "Karyawan dapat absen menggunakan verifikasi wajah"
+                  : "Daftarkan wajah karyawan untuk verifikasi absensi"}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {faceEnrolled && (
+              <button
+                onClick={handleDeleteFace}
+                disabled={deletingFace}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-red-600 border border-red-200 dark:border-red-800 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+              >
+                {deletingFace ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                Hapus
+              </button>
+            )}
+            <button
+              onClick={() => setShowFaceEnrollment(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-[#1E3A8A] text-white rounded-xl hover:bg-blue-800 transition-colors"
+            >
+              <ScanFace size={13} />
+              {faceEnrolled ? "Perbarui Wajah" : "Daftarkan Wajah"}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Navigation */}
       <div className="flex items-center justify-between">
         <Button variant="outline" onClick={() => currentStep > 0 ? setCurrentStep(s => s - 1) : router.back()}>
@@ -342,6 +419,15 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
           )}
         </div>
       </div>
+      {showFaceEnrollment && (
+        <Suspense fallback={null}>
+          <FaceEnrollment
+            targetEmployeeId={id}
+            onClose={() => setShowFaceEnrollment(false)}
+            onSuccess={() => { setFaceEnrolled(true); setShowFaceEnrollment(false); }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

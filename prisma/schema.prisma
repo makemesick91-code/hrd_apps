@@ -67,6 +67,9 @@ model Branch {
   city      String?
   phone     String?
   isMain    Boolean    @default(false)
+  latitude  Float?
+  longitude Float?
+  radius    Int?       @default(100)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   company   Company    @relation(fields: [companyId], references: [id])
@@ -158,6 +161,7 @@ model Employee {
   major               String?
   skills              String[]
   bio                 String?
+  faceDescriptor      String?
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   announcements       AnnouncementRead[]

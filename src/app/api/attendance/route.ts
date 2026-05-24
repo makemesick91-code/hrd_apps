@@ -4,6 +4,18 @@ import { prisma } from "@/lib/prisma";
 import { apiResponse, apiError } from "@/lib/utils";
 import { verifyQRToken } from "./qr-token/route";
 
+// Haversine distance in meters between two lat/lng points
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000; // Earth radius in meters
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // Convert UTC Date to local time string "HH:mm" in given IANA timezone
 function toLocalTime(date: Date, timezone: string): string {
   return date.toLocaleTimeString("en-US", {
@@ -133,6 +145,21 @@ export async function POST(request: NextRequest) {
     if (type === "check-in") {
       if (attendance) return apiError("Sudah check in hari ini", 400);
 
+      // GPS validation per branch
+      if (user.employee.branchId) {
+        const branch = await prisma.branch.findUnique({ where: { id: user.employee.branchId } });
+        if (branch?.latitude != null && branch?.longitude != null) {
+          if (latitude == null || longitude == null) {
+            return apiError("Lokasi GPS diperlukan untuk absensi di cabang ini", 400);
+          }
+          const distance = haversineDistance(latitude, longitude, branch.latitude, branch.longitude);
+          const radius = branch.radius ?? 100;
+          if (distance > radius) {
+            return apiError(`Anda berada di luar area cabang (${Math.round(distance)} m dari ${branch.name}, batas ${radius} m)`, 400);
+          }
+        }
+      }
+
       const now = new Date();
 
       // Calculate lateness in GMT+8
@@ -171,6 +198,21 @@ export async function POST(request: NextRequest) {
     if (type === "check-out") {
       if (!attendance) return apiError("Belum check in hari ini", 400);
       if (attendance.checkOut) return apiError("Sudah check out hari ini", 400);
+
+      // GPS validation per branch
+      if (user.employee.branchId) {
+        const branch = await prisma.branch.findUnique({ where: { id: user.employee.branchId } });
+        if (branch?.latitude != null && branch?.longitude != null) {
+          if (latitude == null || longitude == null) {
+            return apiError("Lokasi GPS diperlukan untuk absensi di cabang ini", 400);
+          }
+          const distance = haversineDistance(latitude, longitude, branch.latitude, branch.longitude);
+          const radius = branch.radius ?? 100;
+          if (distance > radius) {
+            return apiError(`Anda berada di luar area cabang (${Math.round(distance)} m dari ${branch.name}, batas ${radius} m)`, 400);
+          }
+        }
+      }
 
       const now = new Date();
       const workHours = attendance.checkIn

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
-import { Clock, MapPin, QrCode, CheckCircle2, XCircle, Timer, Download, Filter, Loader2, Plus, CalendarDays, X, Pencil } from "lucide-react";
+import { Clock, MapPin, QrCode, CheckCircle2, XCircle, Timer, Download, Filter, Loader2, Plus, CalendarDays, X, Pencil, ScanFace, LocateFixed, WifiOff } from "lucide-react";
 import PageHeader from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/Badge";
 import Button from "@/components/shared/Button";
@@ -13,6 +13,8 @@ const QRScanner = lazy(() => import("@/components/attendance/QRScanner"));
 const QRDisplay = lazy(() => import("@/components/attendance/QRDisplay"));
 const ManualAttendanceModal = lazy(() => import("@/components/attendance/ManualAttendanceModal"));
 const BulkAttendanceModal = lazy(() => import("@/components/attendance/BulkAttendanceModal"));
+const FaceEnrollment = lazy(() => import("@/components/attendance/FaceEnrollment"));
+const FaceVerification = lazy(() => import("@/components/attendance/FaceVerification"));
 
 type CheckStatus = "idle" | "checked-in" | "checked-out";
 
@@ -44,6 +46,8 @@ export default function AttendancePage() {
   const [showQRDisplay, setShowQRDisplay] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
+  const [showFaceEnrollment, setShowFaceEnrollment] = useState(false);
+  const [showFaceVerification, setShowFaceVerification] = useState<"check-in" | "check-out" | null>(null);
   const [editRecord, setEditRecord] = useState<{
     employeeId: string; employeeName: string; date: string;
     checkIn?: string; checkOut?: string; status?: string; notes?: string;
@@ -56,6 +60,7 @@ export default function AttendancePage() {
   const [checkInTime, setCheckInTime] = useState<Date | null>(null);
   const [checkOutTime, setCheckOutTime] = useState<Date | null>(null);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsStatus, setGpsStatus] = useState<"idle" | "loading" | "active" | "denied" | "unavailable">("idle");
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [todayRecord, setTodayRecord] = useState<TodayRecord | null>(null);
@@ -113,7 +118,7 @@ export default function AttendancePage() {
     }
   }, []);
 
-  useEffect(() => { loadTodayStatus(); }, [loadTodayStatus]);
+  useEffect(() => { loadTodayStatus(); requestLocation(); }, [loadTodayStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadTodayAttendance = useCallback(async (f = filters) => {
     const empId = (user as { employee?: { id: string } } | null)?.employee?.id;
@@ -259,13 +264,31 @@ export default function AttendancePage() {
 
   const getLocation = (): Promise<{ lat: number; lng: number } | null> =>
     new Promise((resolve) => {
-      if (!navigator.geolocation) return resolve(null);
+      if (!navigator.geolocation) { setGpsStatus("unavailable"); return resolve(null); }
       navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => resolve(null),
-        { timeout: 5000 }
+        (pos) => {
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setLocation(loc);
+          setGpsStatus("active");
+          resolve(loc);
+        },
+        (err) => {
+          setGpsStatus(err.code === 1 ? "denied" : "unavailable");
+          resolve(null);
+        },
+        { timeout: 8000, enableHighAccuracy: true }
       );
     });
+
+  const requestLocation = () => {
+    setGpsStatus("loading");
+    getLocation();
+  };
+
+  useEffect(() => {
+    if (tab === "checkin") requestLocation();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   const handleQRScan = async (scannedData: string) => {
     setShowScanner(false);
@@ -306,7 +329,7 @@ export default function AttendancePage() {
     }
   };
 
-  const handleCheckIn = async () => {
+  const handleCheckIn = async (method: "MANUAL" | "FACE" = "MANUAL") => {
     setLoading(true);
     try {
       const loc = await getLocation();
@@ -319,7 +342,7 @@ export default function AttendancePage() {
           type: "check-in",
           latitude: loc?.lat,
           longitude: loc?.lng,
-          method: "MANUAL",
+          method,
         }),
       });
       const data = await res.json();
@@ -339,7 +362,7 @@ export default function AttendancePage() {
     }
   };
 
-  const handleCheckOut = async () => {
+  const handleCheckOut = async (method: "MANUAL" | "FACE" = "MANUAL") => {
     setLoading(true);
     try {
       const loc = await getLocation();
@@ -351,7 +374,7 @@ export default function AttendancePage() {
           type: "check-out",
           latitude: loc?.lat,
           longitude: loc?.lng,
-          method: "MANUAL",
+          method,
         }),
       });
       const data = await res.json();
@@ -368,6 +391,23 @@ export default function AttendancePage() {
       toast.error("Terjadi kesalahan, coba lagi");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFaceScan = async (actionType: "check-in" | "check-out") => {
+    try {
+      const res = await fetch("/api/employees/face");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setShowFaceVerification(actionType);
+          return;
+        }
+      }
+      setShowFaceEnrollment(true);
+      toast("Daftarkan wajah Anda terlebih dahulu", { icon: "ℹ️" });
+    } catch {
+      setShowFaceEnrollment(true);
     }
   };
 
@@ -509,12 +549,24 @@ export default function AttendancePage() {
                 {now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </div>
               <div className="text-blue-200 text-sm">{formatDate(now, "EEEE, dd MMMM yyyy")}</div>
-              {location && (
-                <div className="flex items-center justify-center gap-1.5 text-[#F4B400] text-xs mt-3">
-                  <MapPin size={12} />
-                  {location.lat.toFixed(4)}, {location.lng.toFixed(4)}
-                </div>
-              )}
+              <div className="flex items-center justify-center mt-3">
+                {gpsStatus === "loading" && (
+                  <div className="flex items-center gap-1.5 text-blue-200 text-xs">
+                    <Loader2 size={12} className="animate-spin" /> Mengambil lokasi...
+                  </div>
+                )}
+                {gpsStatus === "active" && location && (
+                  <button onClick={requestLocation} className="flex items-center gap-1.5 text-emerald-300 text-xs hover:text-emerald-200 transition-colors">
+                    <LocateFixed size={12} />
+                    {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
+                  </button>
+                )}
+                {(gpsStatus === "denied" || gpsStatus === "unavailable") && (
+                  <button onClick={requestLocation} className="flex items-center gap-1.5 text-red-300 text-xs hover:text-red-200 transition-colors">
+                    <WifiOff size={12} /> GPS tidak aktif — klik untuk coba lagi
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="p-6 space-y-4">
@@ -527,15 +579,15 @@ export default function AttendancePage() {
                   {checkInStatus === "idle" && (
                     <>
                       <div className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">
-                        Klik tombol di bawah untuk mulai bekerja hari ini
+                        Verifikasi wajah diperlukan untuk mulai bekerja hari ini
                       </div>
                       <button
-                        onClick={handleCheckIn}
+                        onClick={() => handleFaceScan("check-in")}
                         disabled={loading}
                         className="w-full py-4 bg-linear-to-r from-emerald-500 to-green-400 text-white font-semibold rounded-2xl hover:opacity-95 hover:shadow-lg transition-all flex items-center justify-center gap-3 text-base disabled:opacity-60"
                       >
-                        {loading ? <Loader2 size={22} className="animate-spin" /> : <CheckCircle2 size={22} />}
-                        {loading ? "Memproses..." : "Check In Sekarang"}
+                        {loading ? <Loader2 size={22} className="animate-spin" /> : <ScanFace size={22} />}
+                        {loading ? "Memproses..." : "Check In via Wajah"}
                       </button>
                       <button
                         onClick={() => setShowScanner(true)}
@@ -559,12 +611,12 @@ export default function AttendancePage() {
                         </div>
                       </div>
                       <button
-                        onClick={handleCheckOut}
+                        onClick={() => handleFaceScan("check-out")}
                         disabled={loading}
                         className="w-full py-4 bg-linear-to-r from-[#1E3A8A] to-[#2563EB] text-white font-semibold rounded-2xl hover:opacity-95 transition-all flex items-center justify-center gap-3 text-base disabled:opacity-60"
                       >
-                        {loading ? <Loader2 size={22} className="animate-spin" /> : <XCircle size={22} />}
-                        {loading ? "Memproses..." : "Check Out"}
+                        {loading ? <Loader2 size={22} className="animate-spin" /> : <ScanFace size={22} />}
+                        {loading ? "Memproses..." : "Check Out via Wajah"}
                       </button>
                       <button
                         onClick={() => setShowScanner(true)}
@@ -626,16 +678,19 @@ export default function AttendancePage() {
                   )}
 
                   {/* Methods info */}
-                  <div className="grid grid-cols-3 gap-3 pt-2">
+                  <div className="grid grid-cols-4 gap-3 pt-2">
+                    <div className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs transition-colors ${
+                      gpsStatus === "active" ? "border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20" : "border-gray-200 dark:border-gray-700 text-gray-400"
+                    }`}>
+                      {gpsStatus === "loading" ? <Loader2 size={16} className="animate-spin" /> : gpsStatus === "active" ? <LocateFixed size={16} /> : <MapPin size={16} />}
+                      GPS
+                    </div>
                     {[
-                      { icon: <MapPin size={16} />, label: "GPS" },
                       { icon: <QrCode size={16} />, label: "QR Code" },
                       { icon: <Clock size={16} />, label: "Manual" },
+                      { icon: <ScanFace size={16} />, label: "Wajah" },
                     ].map((method) => (
-                      <div
-                        key={method.label}
-                        className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-400 text-xs"
-                      >
+                      <div key={method.label} className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-400 text-xs">
                         {method.icon}
                         {method.label}
                       </div>
@@ -801,6 +856,31 @@ export default function AttendancePage() {
           <QRScanner
             onScan={handleQRScan}
             onClose={() => setShowScanner(false)}
+          />
+        </Suspense>
+      )}
+
+      {/* Face enrollment modal */}
+      {showFaceEnrollment && (
+        <Suspense fallback={null}>
+          <FaceEnrollment
+            onClose={() => setShowFaceEnrollment(false)}
+            onSuccess={() => setShowFaceEnrollment(false)}
+          />
+        </Suspense>
+      )}
+
+      {/* Face verification modal */}
+      {showFaceVerification && (
+        <Suspense fallback={null}>
+          <FaceVerification
+            type={showFaceVerification}
+            onClose={() => setShowFaceVerification(null)}
+            onSuccess={() => {
+              if (showFaceVerification === "check-in") handleCheckIn("FACE");
+              else handleCheckOut("FACE");
+              setShowFaceVerification(null);
+            }}
           />
         </Suspense>
       )}

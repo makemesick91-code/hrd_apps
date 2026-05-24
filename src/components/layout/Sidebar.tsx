@@ -8,7 +8,7 @@ import { useAuthStore } from "@/store/authStore";
 import {
   LayoutDashboard, Users, Clock, DollarSign, Calendar, Briefcase,
   TrendingUp, FileText, Bell, Settings, ChevronLeft, ChevronRight,
-  Building2, Shield, UserPlus, BarChart3, LogOut, ChevronDown,
+  Building2, Shield, UserPlus, BarChart3, LogOut, ChevronDown, MapPin,
 } from "lucide-react";
 import { useState } from "react";
 import { Role } from "@/types";
@@ -36,6 +36,7 @@ const navItems: NavItem[] = [
       { label: "Daftar Karyawan", href: "/dashboard/employees", icon: <Users size={18} /> },
       { label: "Tambah Karyawan", href: "/dashboard/employees/new", icon: <UserPlus size={18} /> },
       { label: "Departemen", href: "/dashboard/departments", icon: <Building2 size={18} /> },
+      { label: "Cabang", href: "/dashboard/branches", icon: <MapPin size={18} />, roles: ["SUPER_ADMIN", "HRD"] as Role[] },
     ],
   },
   {
@@ -172,7 +173,7 @@ export default function Sidebar() {
 
                 {!sidebarCollapsed && isOpen && (
                   <div className="ml-6 mt-1 space-y-1">
-                    {item.children.map((child) => (
+                    {item.children.filter((c) => !c.roles || c.roles.includes(user?.role as Role)).map((child) => (
                       <Link
                         key={child.href}
                         href={child.href!}
