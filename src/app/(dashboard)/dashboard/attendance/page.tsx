@@ -61,6 +61,7 @@ export default function AttendancePage() {
   const [checkOutTime, setCheckOutTime] = useState<Date | null>(null);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsStatus, setGpsStatus] = useState<"idle" | "loading" | "active" | "denied" | "unavailable">("idle");
+  const [mockGpsDetected, setMockGpsDetected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [todayRecord, setTodayRecord] = useState<TodayRecord | null>(null);
@@ -262,23 +263,70 @@ export default function AttendancePage() {
     toast.success(`${exportData.length} data diekspor ke Excel`);
   };
 
-  const getLocation = (): Promise<{ lat: number; lng: number } | null> =>
+  const getSinglePosition = (): Promise<GeolocationPosition | null> =>
     new Promise((resolve) => {
-      if (!navigator.geolocation) { setGpsStatus("unavailable"); return resolve(null); }
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setLocation(loc);
-          setGpsStatus("active");
-          resolve(loc);
-        },
-        (err) => {
-          setGpsStatus(err.code === 1 ? "denied" : "unavailable");
-          resolve(null);
-        },
-        { timeout: 8000, enableHighAccuracy: true }
-      );
+      navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), {
+        timeout: 8000, enableHighAccuracy: true, maximumAge: 0,
+      });
     });
+
+  const getLocation = async (): Promise<{ lat: number; lng: number } | null> => {
+    if (!navigator.geolocation) { setGpsStatus("unavailable"); return null; }
+
+    // Take 3 readings 800ms apart to detect mock GPS
+    const readings: GeolocationPosition[] = [];
+    for (let i = 0; i < 3; i++) {
+      const pos = await getSinglePosition();
+      if (pos) readings.push(pos);
+      if (i < 2) await new Promise(r => setTimeout(r, 800));
+    }
+
+    if (readings.length === 0) { setGpsStatus("unavailable"); return null; }
+
+    const first = readings[0];
+
+    // --- Mock GPS detection ---
+    let isMocked = false;
+    let mockReason = "";
+
+    // 1. Accuracy terlalu sempurna (< 2 meter) — tidak wajar untuk GPS nyata
+    if (first.coords.accuracy < 2) {
+      isMocked = true;
+      mockReason = "Akurasi GPS tidak wajar (terlalu sempurna)";
+    }
+
+    // 2. Semua reading identik persis (tidak ada drift alami)
+    if (readings.length >= 2) {
+      const allIdentical = readings.every(
+        r => r.coords.latitude === first.coords.latitude &&
+             r.coords.longitude === first.coords.longitude &&
+             r.coords.accuracy === first.coords.accuracy
+      );
+      if (allIdentical) {
+        isMocked = true;
+        mockReason = "Koordinat GPS tidak berubah sama sekali (tanda aplikasi pemalsuan)";
+      }
+    }
+
+    // 3. Kecepatan = 0 persis dengan akurasi sangat tinggi (< 5m)
+    if (first.coords.speed === 0 && first.coords.accuracy < 5 && first.coords.altitude === null) {
+      isMocked = true;
+      mockReason = "Sinyal GPS terdeteksi tidak valid";
+    }
+
+    if (isMocked) {
+      setMockGpsDetected(true);
+      setGpsStatus("unavailable");
+      toast.error(`Terdeteksi pemalsuan lokasi GPS: ${mockReason}`, { duration: 6000 });
+      return null;
+    }
+
+    setMockGpsDetected(false);
+    const loc = { lat: first.coords.latitude, lng: first.coords.longitude };
+    setLocation(loc);
+    setGpsStatus("active");
+    return loc;
+  };
 
   const requestLocation = () => {
     setGpsStatus("loading");
@@ -333,6 +381,7 @@ export default function AttendancePage() {
     setLoading(true);
     try {
       const loc = await getLocation();
+      if (!loc && mockGpsDetected) { setLoading(false); return; }
       if (loc) setLocation(loc);
 
       const res = await fetch("/api/attendance", {
@@ -366,6 +415,7 @@ export default function AttendancePage() {
     setLoading(true);
     try {
       const loc = await getLocation();
+      if (!loc && mockGpsDetected) { setLoading(false); return; }
 
       const res = await fetch("/api/attendance", {
         method: "POST",
@@ -561,7 +611,12 @@ export default function AttendancePage() {
                     {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
                   </button>
                 )}
-                {(gpsStatus === "denied" || gpsStatus === "unavailable") && (
+                {mockGpsDetected && (
+                  <div className="flex items-center gap-1.5 text-red-300 text-xs font-semibold">
+                    <XCircle size={12} /> Pemalsuan GPS terdeteksi — absensi diblokir
+                  </div>
+                )}
+                {!mockGpsDetected && (gpsStatus === "denied" || gpsStatus === "unavailable") && (
                   <button onClick={requestLocation} className="flex items-center gap-1.5 text-red-300 text-xs hover:text-red-200 transition-colors">
                     <WifiOff size={12} /> GPS tidak aktif — klik untuk coba lagi
                   </button>

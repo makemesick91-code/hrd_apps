@@ -20,6 +20,7 @@ interface FormData {
   npwp: string;
   departmentId: string;
   positionId: string;
+  branchId: string;
   contractType: string;
   joinDate: string;
   employmentStatus: string;
@@ -55,13 +56,14 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
   const [employeeName, setEmployeeName] = useState("");
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [positions, setPositions] = useState<{ id: string; name: string }[]>([]);
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
   const [faceEnrolled, setFaceEnrolled] = useState<boolean | null>(null);
   const [showFaceEnrollment, setShowFaceEnrollment] = useState(false);
   const [deletingFace, setDeletingFace] = useState(false);
   const [form, setForm] = useState<FormData>({
     firstName: "", lastName: "", phone: "", gender: "",
     birthDate: "", address: "", nik: "", npwp: "",
-    departmentId: "", positionId: "",
+    departmentId: "", positionId: "", branchId: "",
     contractType: "PERMANENT", joinDate: "",
     employmentStatus: "ACTIVE",
     basicSalary: "", bankName: "", bankAccount: "",
@@ -73,13 +75,14 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
   useEffect(() => {
     const load = async () => {
       try {
-        const [empRes, deptRes, posRes] = await Promise.all([
+        const [empRes, deptRes, posRes, branchRes] = await Promise.all([
           fetch(`/api/employees/${id}`),
           fetch("/api/departments"),
           fetch("/api/positions"),
+          fetch("/api/branches"),
         ]);
-        const [empData, deptData, posData] = await Promise.all([
-          empRes.json(), deptRes.json(), posRes.json(),
+        const [empData, deptData, posData, branchData] = await Promise.all([
+          empRes.json(), deptRes.json(), posRes.json(), branchRes.json(),
         ]);
 
         if (!empData.success) { toast.error("Karyawan tidak ditemukan"); router.back(); return; }
@@ -92,6 +95,7 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
 
         if (deptData.success) setDepartments(deptData.data ?? []);
         if (posData.success) setPositions(posData.data ?? []);
+        if (branchData.success) setBranches(branchData.data ?? []);
 
         // Check if face is enrolled
         try {
@@ -111,6 +115,7 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
           npwp: emp.npwp ?? "",
           departmentId: emp.departmentId ?? emp.department?.id ?? "",
           positionId: emp.positionId ?? emp.position?.id ?? "",
+          branchId: emp.branchId ?? emp.branch?.id ?? "",
           contractType: emp.contractType ?? "PERMANENT",
           joinDate: emp.joinDate ? emp.joinDate.split("T")[0] : "",
           employmentStatus: emp.employmentStatus ?? "ACTIVE",
@@ -161,6 +166,7 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
           npwp: form.npwp || null,
           departmentId: form.departmentId || null,
           positionId: form.positionId || null,
+          branchId: form.branchId || null,
           contractType: form.contractType || null,
           joinDate: form.joinDate || null,
           employmentStatus: form.employmentStatus,
@@ -297,6 +303,13 @@ export default function EditEmployeePage({ params }: { params: Promise<{ id: str
                 <select value={form.positionId} onChange={e => update("positionId", e.target.value)} className={inputClass}>
                   <option value="">— Pilih Jabatan —</option>
                   {positions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Cabang</label>
+                <select value={form.branchId} onChange={e => update("branchId", e.target.value)} className={inputClass}>
+                  <option value="">— Pilih Cabang —</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
               </div>
               <div>

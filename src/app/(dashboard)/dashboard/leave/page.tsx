@@ -8,6 +8,19 @@ import Button from "@/components/shared/Button";
 import { formatDate } from "@/lib/utils";
 import toast from "react-hot-toast";
 
+interface LeaveRequest {
+  id: string;
+  employeeName: string;
+  employeeId: string;
+  department: string;
+  leaveType: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  reason: string;
+  status: string;
+}
+
 const leaveTypes = [
   { key: "ANNUAL", label: "Cuti Tahunan", color: "bg-blue-100 text-blue-700" },
   { key: "SICK", label: "Cuti Sakit", color: "bg-red-100 text-red-700" },
@@ -29,7 +42,7 @@ export default function LeavePage() {
     reason: "",
   });
 
-  const leaveRequests: never[] = [];
+  const leaveRequests: LeaveRequest[] = [];
   const filtered = leaveRequests;
 
   const handleApply = () => {
